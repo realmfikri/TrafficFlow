@@ -2,9 +2,41 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 import math
 import random
+
+
+class EdgeSpatialIndex:
+    """Bucket vehicles by edge and position for cache-friendly iteration."""
+
+    def __init__(self, bin_size: float = 20.0):
+        self.bin_size = bin_size
+        self.bins: Dict[str, Dict[int, List["Vehicle"]]] = {}
+
+    def build(self, vehicles: Iterable["Vehicle"]):
+        self.bins.clear()
+        occupancy: Dict[str, int] = {}
+
+        for vehicle in vehicles:
+            if vehicle.arrived:
+                continue
+            edge_id = vehicle.current_edge_id
+            bin_id = int(vehicle.position // self.bin_size)
+            self.bins.setdefault(edge_id, {}).setdefault(bin_id, []).append(vehicle)
+            occupancy[edge_id] = occupancy.get(edge_id, 0) + 1
+
+        ordered: Dict[str, List["Vehicle"]] = {}
+        for edge_id, bins in self.bins.items():
+            segments = sorted(bins.items(), key=lambda kv: kv[0], reverse=True)
+            vehicles_on_edge: List["Vehicle"] = []
+            for _, segment in segments:
+                segment.sort(key=lambda v: v.position, reverse=True)
+                vehicles_on_edge.extend(segment)
+            if vehicles_on_edge:
+                ordered[edge_id] = vehicles_on_edge
+
+        return ordered, occupancy
 
 
 @dataclass
@@ -175,6 +207,8 @@ class VehicleSpawner:
     vehicles: Dict[str, Vehicle] = field(default_factory=dict)
     _tick_counter: int = 0
     _rng: random.Random = field(init=False)
+    _spatial_index: EdgeSpatialIndex = field(default_factory=EdgeSpatialIndex, init=False)
+    last_queue_lengths: Dict[str, int] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         self._rng = random.Random(self.random_seed)
@@ -247,17 +281,6 @@ class VehicleSpawner:
         )
         self.vehicles[vehicle_id] = vehicle
 
-    def _leaders_by_edge(self) -> Dict[str, List[Vehicle]]:
-        edges: Dict[str, List[Vehicle]] = {}
-        for vehicle in self.vehicles.values():
-            if vehicle.arrived:
-                continue
-            edges.setdefault(vehicle.current_edge_id, []).append(vehicle)
-
-        for vehs in edges.values():
-            vehs.sort(key=lambda v: v.position, reverse=True)
-        return edges
-
     def _remove_arrived(self) -> None:
         to_remove = [vid for vid, v in self.vehicles.items() if v.arrived]
         for vid in to_remove:
@@ -306,8 +329,8 @@ class VehicleSpawner:
             self._spawn_vehicle(state, tick)
         self._tick_counter += 1
 
-        ordering = self._leaders_by_edge()
-        occupancy: Dict[str, int] = {edge_id: len(vehs) for edge_id, vehs in ordering.items()}
+        ordering, occupancy = self._spatial_index.build(self.vehicles.values())
+        self.last_queue_lengths = occupancy
         signals = state.get("signals") if isinstance(state, dict) else None
         blocked_edges = self._blocked_edges(ordering)
         closed_edges: set[str] = set()

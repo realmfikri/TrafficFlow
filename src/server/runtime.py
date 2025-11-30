@@ -1,32 +1,27 @@
 from __future__ import annotations
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import Dict, List, Set
 import time
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+PRESETS = {
+    "Sunday Morning": {"spawn_interval": 4, "signal_timings": {"NS": 28.0, "EW": 28.0}},
+    "Rush Hour": {"spawn_interval": 1, "signal_timings": {"NS": 40.0, "EW": 32.0}},
+}
+
 from src.agents.vehicle import Vehicle, VehicleSpawner
 from src.map.generator import generate_grid_network
+from src.metrics import MetricSnapshot, MetricsCollector
 from src.signals.lights import TrafficSignalController
 from src.simulation.core import SimulationConfig, SimulationEngine
-
-
-@dataclass
-class MetricSnapshot:
-    tick: int
-    average_speed: float
-    average_commute_time: float
-    completed_commutes: int
-    stuck_vehicles: int
 
 
 @dataclass
@@ -39,10 +34,9 @@ class SimulationRuntime:
     _stop_event: Event = field(default_factory=Event, init=False)
     _thread: Thread | None = field(default=None, init=False)
     closed_edges: Set[str] = field(default_factory=set)
-    _spawn_times: Dict[str, int] = field(default_factory=dict, init=False)
-    _completed_commutes: int = field(default=0, init=False)
-    _total_commute_time: float = field(default=0.0, init=False)
     metrics_history: List[MetricSnapshot] = field(default_factory=list, init=False)
+    metrics_collector: MetricsCollector = field(default_factory=MetricsCollector, init=False)
+    active_preset: str | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         self._engine = SimulationEngine(self.config, network=generate_grid_network(self.config.grid))
@@ -58,12 +52,15 @@ class SimulationRuntime:
         self._thread.start()
 
     def _run_loop(self) -> None:
-        tick_seconds = max(self.config.tick_duration, 0.01)
         while not self._stop_event.is_set():
-            time.sleep(tick_seconds)
+            start = time.perf_counter()
             with self._lock:
                 self._engine.advance_tick()
                 self._update_metrics()
+            elapsed = time.perf_counter() - start
+            self.metrics_collector.record_tick_duration(elapsed)
+            tick_seconds = max(self.config.tick_duration - elapsed, 0.0)
+            time.sleep(max(tick_seconds, 0.001))
 
     def shutdown(self) -> None:
         self._stop_event.set()
@@ -86,41 +83,61 @@ class SimulationRuntime:
         durations = {"NS": max(ns, 1.0), "EW": max(ew, 1.0)}
         with self._lock:
             self._signals.update_phase_durations(durations)
+            self.active_preset = None
         return durations
 
     def update_spawn_interval(self, interval: int) -> Dict[str, int]:
         interval = max(1, interval)
         with self._lock:
             self._spawner.spawn_interval = interval
+            self.active_preset = None
         return {"spawn_interval": interval}
+
+    def apply_preset(self, name: str) -> Dict:
+        preset = PRESETS.get(name)
+        if not preset:
+            raise ValueError(f"Unknown preset: {name}")
+
+        with self._lock:
+            if "spawn_interval" in preset:
+                self._spawner.spawn_interval = max(int(preset["spawn_interval"]), 1)
+            if "signal_timings" in preset:
+                durations = {
+                    "NS": max(float(preset["signal_timings"].get("NS", 1.0)), 1.0),
+                    "EW": max(float(preset["signal_timings"].get("EW", 1.0)), 1.0),
+                }
+                self._signals.update_phase_durations(durations)
+            self.active_preset = name
+
+        return {
+            "applied": name,
+            "spawn_interval": self._spawner.spawn_interval,
+            "signal_timings": self._signals.phase_durations,
+        }
 
     def _update_metrics(self) -> None:
         current_ids = set(self.vehicles.keys())
-        new_ids = current_ids - set(self._spawn_times.keys())
+        new_ids = current_ids - set(self.metrics_collector.spawn_times.keys())
         for vid in new_ids:
-            self._spawn_times[vid] = self._engine.tick
+            self.metrics_collector.on_spawn(vid, self._engine.tick)
 
-        arrived_ids = set(self._spawn_times.keys()) - current_ids
+        arrived_ids = set(self.metrics_collector.spawn_times.keys()) - current_ids
         for vid in arrived_ids:
-            start_tick = self._spawn_times.pop(vid, self._engine.tick)
-            self._completed_commutes += 1
-            self._total_commute_time += max(self._engine.tick - start_tick, 0)
+            self.metrics_collector.on_arrival(vid, self._engine.tick)
 
         speeds = [veh.velocity for veh in self.vehicles.values()]
         average_speed = sum(speeds) / len(speeds) if speeds else 0.0
-        average_commute = (
-            self._total_commute_time / self._completed_commutes
-            if self._completed_commutes
-            else 0.0
-        )
         stuck_count = sum(1 for veh in self.vehicles.values() if veh.stuck)
 
-        snapshot = MetricSnapshot(
+        self.metrics_collector.record_queues(self._spawner.last_queue_lengths)
+        self.metrics_collector.finalize_tick()
+
+        snapshot = self.metrics_collector.snapshot(
             tick=self._engine.tick,
             average_speed=average_speed,
-            average_commute_time=average_commute,
-            completed_commutes=self._completed_commutes,
+            completed_commutes=len(self.metrics_collector.commute_times),
             stuck_vehicles=stuck_count,
+            tick_duration=self.config.tick_duration,
         )
         self.metrics_history.append(snapshot)
         self.metrics_history = self.metrics_history[-200:]
@@ -159,7 +176,22 @@ class SimulationRuntime:
                 for veh in self.vehicles.values()
             ]
 
-            metrics = self.metrics_history[-1] if self.metrics_history else MetricSnapshot(0, 0.0, 0.0, 0, 0)
+            metrics = (
+                self.metrics_history[-1]
+                if self.metrics_history
+                else MetricSnapshot(
+                    0,
+                    0.0,
+                    0.0,
+                    0,
+                    0,
+                    0.0,
+                    0.0,
+                    0,
+                    {},
+                    0.0,
+                )
+            )
 
             return {
                 "tick": self._engine.tick,
@@ -171,11 +203,17 @@ class SimulationRuntime:
                     "average_commute_time": metrics.average_commute_time,
                     "completed_commutes": metrics.completed_commutes,
                     "stuck_vehicles": metrics.stuck_vehicles,
+                    "throughput_per_minute": metrics.throughput_per_minute,
+                    "average_queue_length": metrics.average_queue_length,
+                    "max_queue_length": metrics.max_queue_length,
+                    "queue_lengths": metrics.queue_lengths,
+                    "tick_duration_ms": metrics.tick_duration_ms,
                 },
                 "history": [snapshot.__dict__ for snapshot in self.metrics_history[-60:]],
                 "settings": {
                     "spawn_interval": self._spawner.spawn_interval,
                     "signal_timings": self._signals.phase_durations,
+                    "active_preset": self.active_preset,
                 },
             }
 
@@ -191,6 +229,10 @@ class SpawnUpdate(BaseModel):
 
 class ClosureUpdate(BaseModel):
     edge_id: str
+
+
+class PresetUpdate(BaseModel):
+    name: str
 
 
 def create_app(runtime: SimulationRuntime | None = None) -> FastAPI:
@@ -224,7 +266,19 @@ def create_app(runtime: SimulationRuntime | None = None) -> FastAPI:
 
     @app.get("/api/metrics")
     async def get_metrics() -> Dict:
-        return runtime.snapshot().get("metrics", {})
+        snap = runtime.snapshot()
+        return {"latest": snap.get("metrics", {}), "history": snap.get("history", [])}
+
+    @app.get("/api/presets")
+    async def list_presets() -> Dict:
+        return {"presets": list(PRESETS.keys()), "active": runtime.active_preset}
+
+    @app.post("/api/presets/apply")
+    async def set_preset(update: PresetUpdate) -> Dict:
+        try:
+            return runtime.apply_preset(update.name)
+        except ValueError as exc:  # pragma: no cover - defensive guard
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/settings/signals")
     async def set_signals(update: TimingUpdate) -> Dict[str, float]:
