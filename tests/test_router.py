@@ -3,6 +3,9 @@ import pytest
 from src.pathfinding.router import Router
 
 
+pytestmark = pytest.mark.unit
+
+
 @pytest.fixture
 def simple_network():
     return {
@@ -13,10 +16,38 @@ def simple_network():
             {"id": "D", "x": 1, "y": 1},
         ],
         "edges": [
-            {"id": "A_B", "from": "A", "to": "B", "length": 10.0, "speed_limit": 10.0, "capacity": 1},
-            {"id": "B_C", "from": "B", "to": "C", "length": 10.0, "speed_limit": 10.0, "capacity": 1},
-            {"id": "A_D", "from": "A", "to": "D", "length": 15.0, "speed_limit": 10.0, "capacity": 2},
-            {"id": "D_C", "from": "D", "to": "C", "length": 10.0, "speed_limit": 10.0, "capacity": 2},
+            {
+                "id": "A_B",
+                "from": "A",
+                "to": "B",
+                "length": 10.0,
+                "speed_limit": 10.0,
+                "capacity": 1,
+            },
+            {
+                "id": "B_C",
+                "from": "B",
+                "to": "C",
+                "length": 10.0,
+                "speed_limit": 10.0,
+                "capacity": 1,
+            },
+            {
+                "id": "A_D",
+                "from": "A",
+                "to": "D",
+                "length": 15.0,
+                "speed_limit": 10.0,
+                "capacity": 2,
+            },
+            {
+                "id": "D_C",
+                "from": "D",
+                "to": "C",
+                "length": 10.0,
+                "speed_limit": 10.0,
+                "capacity": 2,
+            },
         ],
     }
 
@@ -63,4 +94,3 @@ def test_blocking_edge_forces_new_path(simple_network):
 
     assert [edge["id"] for edge in rerouted] == ["A_D", "D_C"]
     assert "A_B" in router._blocked_edges
-

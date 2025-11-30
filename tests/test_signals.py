@@ -4,6 +4,9 @@ from src.agents.vehicle import Vehicle, VehicleSpawner
 from src.signals.lights import TrafficLight, TrafficSignalController
 
 
+pytestmark = pytest.mark.unit
+
+
 def test_traffic_light_cycles_between_phases():
     light = TrafficLight(phase_durations={"NS": 1.0, "EW": 2.0}, current_phase="NS")
 
@@ -48,7 +51,9 @@ def _simple_network():
 
 def test_vehicle_yields_to_red_and_proceeds_on_green():
     network = _simple_network()
-    signals = TrafficSignalController(network, phase_durations={"NS": 1.0, "EW": 1.0}, start_phase="NS")
+    signals = TrafficSignalController(
+        network, phase_durations={"NS": 1.0, "EW": 1.0}, start_phase="NS"
+    )
     spawner = VehicleSpawner(max_vehicles=0)
 
     vehicle = Vehicle(

@@ -5,6 +5,9 @@ import pytest
 from src.agents.vehicle import Vehicle, VehicleSpawner
 
 
+pytestmark = pytest.mark.unit
+
+
 @pytest.fixture
 def simple_route():
     return [
@@ -19,8 +22,12 @@ def test_idm_acceleration_free_road(simple_route):
 
 
 def test_idm_acceleration_with_leader(simple_route):
-    follower = Vehicle("v1", route=simple_route, patience=1.0, destination="n_0_1", position=5.0, velocity=10.0)
-    leader = Vehicle("v2", route=simple_route, patience=1.0, destination="n_0_1", position=20.0, velocity=8.0)
+    follower = Vehicle(
+        "v1", route=simple_route, patience=1.0, destination="n_0_1", position=5.0, velocity=10.0
+    )
+    leader = Vehicle(
+        "v2", route=simple_route, patience=1.0, destination="n_0_1", position=20.0, velocity=8.0
+    )
 
     accel = follower.compute_acceleration(leader=leader, dt=1.0)
 

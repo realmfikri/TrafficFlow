@@ -1,65 +1,99 @@
 # TrafficFlow
 
-A lightweight sandbox for experimenting with discrete-time traffic simulations.
+TrafficFlow is a discrete-time traffic simulation sandbox featuring congestion-aware routing, signal timing, and lightweight vehicle dynamics. It powers both standalone experiments and the accompanying FastAPI backend for visualizing network state.
 
-## Simulation core
-- ``src/simulation/core.py`` provides a tick-based scheduler that maintains a
-  shared state object, advances time deterministically, and allows agents to be
-  registered with configurable update intervals.
-- Default tick duration is one second with a 3x3 grid and modest per-lane
-  capacity (30 vehicles/tick). Seeds are honored by both the scheduler and map
-  generator to keep runs reproducible.
+## Setup
 
-## Map generation
-- ``src/map/generator.py`` builds a directed grid network with nodes positioned
-  on evenly spaced intersections and edges carrying lane, speed limit, and
-  capacity metadata.
-- The generator assumes orthogonal roads with equal block lengths and creates
-  paired edges for bidirectional travel.
+1. Install Python 3.11 and create a virtual environment:
 
-## Configuration
-- Use JSON or YAML files to override defaults. Expected keys include
-  ``tick_duration``, ``max_ticks``, ``seed``, and a ``grid`` block with
-  ``rows``, ``cols``, ``block_length``, ``lanes_per_road``, ``speed_limit``,
-  ``capacity_per_lane``, and an optional ``seed`` for the map layout.
-- Load configurations via ``simulation.core.load_config(<path>)``; the helper
-  returns a ``SimulationConfig`` instance ready for the engine.
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   ```
 
-## Metrics & API endpoints
-- ``src/metrics/collector.py`` tracks commute durations, stuck vehicles,
-  throughput-per-minute, and queue lengths for the busiest edges.
-- ``/api/state`` returns the latest metrics alongside the map and vehicle
-  state, while ``/api/metrics`` returns a metrics-only payload with recent
-  history for charting.
-- ``tick_duration_ms`` exposes the average runtime of the simulation loop so
-  you can watch for regressions when scaling up to ~2,000 agents.
+2. Install runtime and development dependencies:
 
-## Presets
-- ``/api/presets`` lists available presets; ``/api/presets/apply`` applies the
-  preset and updates spawn rates and signal timing in one call.
-- The frontend includes a selector for "Sunday Morning" (light traffic) and
-  "Rush Hour" (aggressive spawning with longer green phases for the north/south
-  corridor).
+   ```bash
+   pip install -r requirements.txt -r requirements-dev.txt
+   ```
 
-## Performance tuning
-- Use the preset selector or the spawn/signal inputs to throttle load when you
-  approach 2,000 active vehicles. The metrics panel will surface queue lengths
-  and the runtime of each tick.
-- Vehicles are bucketed by edge and position before each tick, improving cache
-  locality and reducing per-edge sorting overhead for large fleets.
-- Keep ``tick_duration`` modest (1–5 ms) when running headless performance
-  sweeps; you can still render the frontend while the backend advances more
-  quickly than real time.
-- Quick benchmark (0.5s headless run, 2 ms tick target): the loop averaged
-  ~1.99 ms per tick with a peak queue of 12 vehicles and ~3.9 average queue
-  depth, leaving headroom for 2k vehicles on this container's CPUs.【949f0a†L1-L5】
+3. Install the pre-commit hooks to keep formatting, linting, and types aligned:
 
-## Example
+   ```bash
+   pre-commit install
+   ```
+
+## Running the simulation backend
+
+The FastAPI app exposes the live simulation state plus a simple frontend:
+
+```bash
+uvicorn src.server.runtime:create_app --factory --reload
+```
+
+You can also run the engine directly for headless experiments:
+
 ```python
 from src.simulation.core import SimulationEngine, load_config
+from src.agents.vehicle import VehicleSpawner
+from src.signals.lights import TrafficSignalController
 
 config = load_config("config.yml")
 engine = SimulationEngine(config)
-engine.register_agent("logger", lambda state, tick: print(tick))
-engine.run(10)
+TrafficSignalController(engine.state["network"]).register(engine)
+VehicleSpawner().register(engine)
+engine.run(120)
 ```
+
+## Quality checks and tests
+
+- Format: `black .`
+- Lint: `flake8 .`
+- Types: `mypy src tests`
+- Unit tests: `pytest -m "not integration"`
+- Integration tests: `pytest -m integration`
+
+The GitHub Actions workflow (`.github/workflows/ci.yml`) runs all of the above on pushes and pull requests.
+
+## Architecture overview
+
+- **Simulation engine** (`src/simulation/core.py`): tick scheduler with deterministic ordering and pluggable agents.
+- **Routing** (`src/pathfinding/router.py`): congestion-aware shortest-path planner with rerouting and load bookkeeping.
+- **Signals** (`src/signals/lights.py`): per-intersection traffic lights and a controller agent that advances phases.
+- **Vehicles** (`src/agents/vehicle.py`): IDM-inspired car-following model with spawning, queue tracking, and gridlock detection.
+- **Map generation** (`src/map/generator.py`): directed grid builder with reproducible seeds and lane-aware capacities.
+- **Metrics & API** (`src/metrics/collector.py`, `src/server/runtime.py`): runtime metrics collection, preset management, and REST endpoints.
+
+### Simulation loop
+
+```mermaid
+flowchart TD
+    S[SimulationEngine.advance_tick] --> Q[Run scheduled agent callbacks]
+    Q --> U[Agents mutate shared state (vehicles, signals, closures)]
+    U --> R[Reschedule callbacks based on interval]
+    R --> T[Increment tick and repeat]
+```
+
+### Data flow
+
+```mermaid
+flowchart LR
+    MG[Map Generator] -->|network| SE[SimulationEngine]
+    SE -->|state access| SIG[TrafficSignalController]
+    SE -->|state access| SPA[VehicleSpawner]
+    SPA -->|routes + updates| ROU[Router]
+    ROU -->|edge loads & reroutes| SPA
+    SPA -->|vehicle positions| MET[Metrics Collector]
+    SIG -->|phase timings| MET
+    MET -->|snapshots| API[FastAPI endpoints]
+```
+
+## Configuration
+
+Use JSON or YAML to override defaults such as `tick_duration`, `max_ticks`, `seed`, and grid parameters (`rows`, `cols`, `block_length`, `lanes_per_road`, `speed_limit`, `capacity_per_lane`). Load files with `simulation.core.load_config(<path>)` to produce a `SimulationConfig` instance.
+
+## Performance notes
+
+- Vehicles are bucketed by edge and position before each tick to keep iteration cache-friendly.
+- Capacity and spawn intervals are conservative by default; presets and API endpoints in `src/server/runtime.py` adjust them for heavier loads.
+- The metrics collector reports queue lengths and tick runtimes to spot regressions as fleets scale toward thousands of agents.

@@ -1,4 +1,5 @@
 """Routing service supporting congestion-aware shortest paths and rerouting."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -106,7 +107,9 @@ class Router:
     # ------------------------------------------------------------------
     # Vehicle management
     # ------------------------------------------------------------------
-    def register_vehicle(self, vehicle_id: str, start: str, destination: str, tick: int = 0) -> List[Dict]:
+    def register_vehicle(
+        self, vehicle_id: str, start: str, destination: str, tick: int = 0
+    ) -> List[Dict]:
         route = self.plan_route(start, destination)
         self._vehicles[vehicle_id] = {
             "current_node": start,
@@ -149,6 +152,9 @@ class Router:
         current_node = state.get("current_node")
         destination = state.get("destination")
         old_route = state.get("route", [])
+        if not isinstance(current_node, str) or not isinstance(destination, str):
+            raise ValueError("Vehicle state is missing routing metadata")
+
         new_route = self.plan_route(current_node, destination)
         self._apply_route_load(old_route, delta=-1)
         state["route"] = new_route.copy()
@@ -174,7 +180,11 @@ class Router:
     # ------------------------------------------------------------------
     def block_edge(self, edge_id: str, tick: int = 0) -> None:
         self._blocked_edges.add(edge_id)
-        affected = [vid for vid, state in self._vehicles.items() if any(e["id"] == edge_id for e in state.get("route", []))]
+        affected = [
+            vid
+            for vid, state in self._vehicles.items()
+            if any(e["id"] == edge_id for e in state.get("route", []))
+        ]
         for vid in affected:
             if tick - self._vehicles[vid].get("last_reroute", -math.inf) >= self.reroute_cooldown:
                 self._reroute_vehicle(vid, tick)
@@ -185,4 +195,3 @@ class Router:
     def record_external_load(self, edge_id: str, delta: int) -> None:
         """Adjust an edge's load to reflect vehicles managed elsewhere."""
         self._edge_loads[edge_id] = max(0, self._edge_loads.get(edge_id, 0) + delta)
-
