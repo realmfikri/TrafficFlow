@@ -279,6 +279,7 @@ class VehicleSpawner:
         occupancy: Dict[str, int],
         blocked_edges: set[str],
         signals,
+        closed_edges: set[str],
     ) -> bool:
         if next_edge is None:
             return True
@@ -288,6 +289,8 @@ class VehicleSpawner:
         if occupancy.get(next_id, 0) >= next_capacity:
             return False
         if next_id in blocked_edges:
+            return False
+        if next_id in closed_edges:
             return False
 
         if signals is not None and hasattr(signals, "can_enter"):
@@ -307,6 +310,9 @@ class VehicleSpawner:
         occupancy: Dict[str, int] = {edge_id: len(vehs) for edge_id, vehs in ordering.items()}
         signals = state.get("signals") if isinstance(state, dict) else None
         blocked_edges = self._blocked_edges(ordering)
+        closed_edges: set[str] = set()
+        if isinstance(state, dict):
+            closed_edges = set(state.get("closed_edges", []))
 
         for vehicles in ordering.values():
             leader: Optional[Vehicle] = None
@@ -316,7 +322,7 @@ class VehicleSpawner:
                     dt,
                     leader,
                     can_enter_next=lambda cur, nxt, occ=occupancy, blocked=blocked_edges: self._can_enter_next_edge(
-                        cur, nxt, occ, blocked, signals
+                        cur, nxt, occ, blocked, signals, closed_edges
                     ),
                 )
                 after_edge = veh.current_edge_id

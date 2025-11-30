@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TrafficFlow Dashboard</title>
+    <link rel="stylesheet" href="/frontend/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Live Sandbox</p>
+        <h1>TrafficFlow</h1>
+        <p class="subhead">
+          Glowing grid map with realtime vehicles, controllable signals, and live metrics.
+        </p>
+        <div class="controls">
+          <div class="control-group">
+            <label for="nsTiming">North/South</label>
+            <input type="number" id="nsTiming" min="1" value="30" />
+            <label for="ewTiming">East/West</label>
+            <input type="number" id="ewTiming" min="1" value="30" />
+            <button id="updateSignals">Update Signals</button>
+          </div>
+          <div class="control-group">
+            <label for="spawnInterval">Spawn interval (ticks)</label>
+            <input type="number" id="spawnInterval" min="1" value="1" />
+            <button id="updateSpawn">Update Spawn</button>
+          </div>
+          <div class="control-group note">
+            <p>Click any road segment on the canvas to toggle closures.</p>
+          </div>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric">
+          <p class="label">Tick</p>
+          <p class="value" id="tickValue">0</p>
+        </div>
+        <div class="metric">
+          <p class="label">Average Speed (m/s)</p>
+          <p class="value" id="avgSpeed">0</p>
+        </div>
+        <div class="metric">
+          <p class="label">Avg Commute (ticks)</p>
+          <p class="value" id="avgCommute">0</p>
+        </div>
+        <div class="metric">
+          <p class="label">Stuck</p>
+          <p class="value" id="stuckCount">0</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="content">
+      <section class="canvas-panel">
+        <canvas id="gridCanvas" width="900" height="600"></canvas>
+      </section>
+      <section class="charts">
+        <div class="chart-card">
+          <h3>Average Commute Time</h3>
+          <canvas id="commuteChart"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Average Speed</h3>
+          <canvas id="speedChart"></canvas>
+        </div>
+      </section>
+    </main>
+
+    <template id="toastTemplate">
+      <div class="toast"></div>
+    </template>
+
+    <script src="/frontend/main.js"></script>
+  </body>
+</html>

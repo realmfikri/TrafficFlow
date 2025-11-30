@@ -77,6 +77,11 @@ class TrafficSignalController:
         orientation = self._orientation(current_edge.get("from"), dest)
         return light.allows(orientation)
 
+    def update_phase_durations(self, durations: Dict[str, float]) -> None:
+        self.phase_durations.update(durations)
+        for light in self.lights.values():
+            light.phase_durations.update(durations)
+
     def register(self, engine) -> None:
         """Register the controller as a simulation agent."""
 

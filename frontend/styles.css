@@ -1,0 +1,216 @@
+:root {
+  --bg: #0a0f1c;
+  --panel: #11182b;
+  --accent: #6cf4ff;
+  --text: #e5ecff;
+  --muted: #8da2c0;
+  --warning: #ff6b6b;
+  --success: #6cffb5;
+  --glow: 0 0 20px rgba(108, 244, 255, 0.6);
+  --radius: 14px;
+}
+
+* {
+  box-sizing: border-box;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at 20% 20%, rgba(108, 244, 255, 0.1), transparent),
+    radial-gradient(circle at 80% 0%, rgba(255, 255, 255, 0.08), transparent),
+    var(--bg);
+  color: var(--text);
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+  padding: 2rem 2.5rem;
+  background: linear-gradient(135deg, rgba(17, 24, 43, 0.9), rgba(17, 24, 43, 0.6));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.eyebrow {
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin: 0 0 0.25rem 0;
+}
+
+h1 {
+  margin: 0;
+  font-size: 2.6rem;
+}
+
+.subhead {
+  margin: 0.4rem 0 1.2rem;
+  color: var(--muted);
+  max-width: 40ch;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+.control-group {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius);
+  padding: 1rem;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+}
+
+.control-group label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+
+.control-group input {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.5rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.control-group button {
+  width: 100%;
+  padding: 0.7rem 1rem;
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(135deg, #6cf4ff, #5ac7ff);
+  color: #08263a;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(92, 199, 255, 0.4);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.control-group button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 36px rgba(92, 199, 255, 0.5);
+}
+
+.control-group.note {
+  border-style: dashed;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+  align-self: center;
+  width: 420px;
+}
+
+.metric {
+  padding: 0.9rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.metric .label {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.metric .value {
+  margin: 0.25rem 0 0;
+  font-size: 1.6rem;
+  font-weight: 800;
+}
+
+.content {
+  padding: 1.5rem 2rem 2rem;
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1.2rem;
+}
+
+.canvas-panel {
+  background: var(--panel);
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  padding: 1rem;
+}
+
+#gridCanvas {
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at 30% 30%, rgba(108, 244, 255, 0.06), transparent),
+    radial-gradient(circle at 80% 70%, rgba(255, 255, 255, 0.05), transparent),
+    #0b1221;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.charts {
+  display: grid;
+  gap: 1rem;
+}
+
+.chart-card {
+  background: var(--panel);
+  padding: 1rem;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.32);
+}
+
+.toast {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  padding: 0.8rem 1rem;
+  background: rgba(17, 24, 43, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  color: var(--text);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transform: translateY(10px);
+  animation: toast-in 0.2s ease forwards, toast-out 0.2s ease 3.2s forwards;
+}
+
+@keyframes toast-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (max-width: 1024px) {
+  .content {
+    grid-template-columns: 1fr;
+  }
+
+  .hero {
+    flex-direction: column;
+  }
+}
