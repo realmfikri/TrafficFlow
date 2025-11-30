@@ -4,7 +4,10 @@ let layout = { scale: 1, offsetX: 0, offsetY: 0 };
 let edgeScreenCache = [];
 let commuteChart;
 let speedChart;
+let throughputChart;
+let queueChart;
 let maxSpeedLimit = 15;
+let presets = [];
 
 function showToast(message) {
   const template = document.getElementById("toastTemplate");
@@ -102,17 +105,26 @@ function updateMetrics(state) {
   document.getElementById("avgSpeed").textContent = state.metrics.average_speed.toFixed(2);
   document.getElementById("avgCommute").textContent = state.metrics.average_commute_time.toFixed(1);
   document.getElementById("stuckCount").textContent = state.metrics.stuck_vehicles;
+  document.getElementById("throughput").textContent = state.metrics.throughput_per_minute.toFixed(1);
+  document.getElementById("avgQueue").textContent = state.metrics.average_queue_length.toFixed(1);
+  document.getElementById("tickRuntime").textContent = state.metrics.tick_duration_ms.toFixed(2);
 
   if (state.settings) {
     document.getElementById("spawnInterval").value = state.settings.spawn_interval;
     document.getElementById("nsTiming").value = state.settings.signal_timings.NS;
     document.getElementById("ewTiming").value = state.settings.signal_timings.EW;
+    const activePreset = state.settings.active_preset;
+    if (activePreset && presets.includes(activePreset)) {
+      document.getElementById("presetSelect").value = activePreset;
+    }
   }
 }
 
 function initCharts() {
   const commuteCtx = document.getElementById("commuteChart").getContext("2d");
   const speedCtx = document.getElementById("speedChart").getContext("2d");
+  const throughputCtx = document.getElementById("throughputChart").getContext("2d");
+  const queueCtx = document.getElementById("queueChart").getContext("2d");
 
   commuteChart = new Chart(commuteCtx, {
     type: "line",
@@ -157,10 +169,56 @@ function initCharts() {
       scales: { x: { ticks: { color: "#8da2c0" } }, y: { ticks: { color: "#8da2c0" } } },
     },
   });
+
+  throughputChart = new Chart(throughputCtx, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: "Vehicles per minute",
+          data: [],
+          borderColor: "#ffc857",
+          backgroundColor: "rgba(255,200,87,0.2)",
+          tension: 0.25,
+        },
+      ],
+    },
+    options: {
+      animation: false,
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { x: { ticks: { color: "#8da2c0" } }, y: { ticks: { color: "#8da2c0" } } },
+    },
+  });
+
+  queueChart = new Chart(queueCtx, {
+    type: "bar",
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: "Vehicles queued",
+          data: [],
+          backgroundColor: "rgba(108,244,255,0.5)",
+          borderColor: "#6cf4ff",
+        },
+      ],
+    },
+    options: {
+      animation: false,
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "#8da2c0" } },
+        y: { ticks: { color: "#8da2c0" }, beginAtZero: true },
+      },
+    },
+  });
 }
 
 function updateCharts(history) {
-  if (!commuteChart || !speedChart) return;
+  if (!commuteChart || !speedChart || !throughputChart) return;
   const labels = history.map((h) => h.tick);
   commuteChart.data.labels = labels;
   commuteChart.data.datasets[0].data = history.map((h) => h.average_commute_time);
@@ -169,6 +227,18 @@ function updateCharts(history) {
   speedChart.data.labels = labels;
   speedChart.data.datasets[0].data = history.map((h) => h.average_speed);
   speedChart.update("none");
+
+  throughputChart.data.labels = labels;
+  throughputChart.data.datasets[0].data = history.map((h) => h.throughput_per_minute || 0);
+  throughputChart.update("none");
+}
+
+function updateQueueChart(queueLengths) {
+  if (!queueChart) return;
+  const entries = Object.entries(queueLengths || {});
+  queueChart.data.labels = entries.map(([edge]) => edge);
+  queueChart.data.datasets[0].data = entries.map(([, count]) => count);
+  queueChart.update("none");
 }
 
 async function fetchState() {
@@ -177,12 +247,31 @@ async function fetchState() {
   return res.json();
 }
 
+async function fetchPresets() {
+  const res = await fetch("/api/presets");
+  if (!res.ok) throw new Error("Failed to fetch presets");
+  const payload = await res.json();
+  presets = payload.presets || [];
+  const select = document.getElementById("presetSelect");
+  select.innerHTML = "";
+  presets.forEach((name) => {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    select.appendChild(option);
+  });
+  if (payload.active && presets.includes(payload.active)) {
+    select.value = payload.active;
+  }
+}
+
 async function poll() {
   try {
     const state = await fetchState();
     drawState(state);
     updateMetrics(state);
     updateCharts(state.history || []);
+    updateQueueChart(state.metrics.queue_lengths || {});
   } catch (err) {
     console.error(err);
   } finally {
@@ -211,6 +300,21 @@ async function updateSpawn() {
   });
   if (!res.ok) throw new Error("Unable to update spawn interval");
   showToast("Spawn interval updated");
+}
+
+async function applyPreset() {
+  const name = document.getElementById("presetSelect").value;
+  const res = await fetch("/api/presets/apply", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error("Unable to apply preset");
+  const payload = await res.json();
+  document.getElementById("spawnInterval").value = payload.spawn_interval;
+  document.getElementById("nsTiming").value = payload.signal_timings.NS;
+  document.getElementById("ewTiming").value = payload.signal_timings.EW;
+  showToast(`${payload.applied} preset applied`);
 }
 
 function distanceToEdge(pt, edge) {
@@ -255,9 +359,13 @@ function bindControls() {
   document.getElementById("updateSpawn").addEventListener("click", () => {
     updateSpawn().catch(() => showToast("Failed to update spawn"));
   });
+  document.getElementById("applyPreset").addEventListener("click", () => {
+    applyPreset().catch(() => showToast("Failed to apply preset"));
+  });
   canvas.addEventListener("click", (evt) => handleCanvasClick(evt));
 }
 
 initCharts();
 bindControls();
+fetchPresets().catch(() => {});
 poll();

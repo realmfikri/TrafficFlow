@@ -28,6 +28,12 @@
             <input type="number" id="spawnInterval" min="1" value="1" />
             <button id="updateSpawn">Update Spawn</button>
           </div>
+          <div class="control-group">
+            <label for="presetSelect">Configuration preset</label>
+            <select id="presetSelect"></select>
+            <button id="applyPreset">Apply Preset</button>
+            <p class="hint">Sunday Morning and Rush Hour adjust spawn rates and signals.</p>
+          </div>
           <div class="control-group note">
             <p>Click any road segment on the canvas to toggle closures.</p>
           </div>
@@ -50,6 +56,18 @@
           <p class="label">Stuck</p>
           <p class="value" id="stuckCount">0</p>
         </div>
+        <div class="metric">
+          <p class="label">Throughput / min</p>
+          <p class="value" id="throughput">0</p>
+        </div>
+        <div class="metric">
+          <p class="label">Avg Queue</p>
+          <p class="value" id="avgQueue">0</p>
+        </div>
+        <div class="metric">
+          <p class="label">Tick Runtime (ms)</p>
+          <p class="value" id="tickRuntime">0</p>
+        </div>
       </div>
     </header>
 
@@ -65,6 +83,14 @@
         <div class="chart-card">
           <h3>Average Speed</h3>
           <canvas id="speedChart"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Throughput (vehicles/min)</h3>
+          <canvas id="throughputChart"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Queues (busiest edges)</h3>
+          <canvas id="queueChart"></canvas>
         </div>
       </section>
     </main>

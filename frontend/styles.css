@@ -75,7 +75,8 @@ h1 {
   margin-bottom: 0.25rem;
 }
 
-.control-group input {
+.control-group input,
+.control-group select {
   width: 100%;
   padding: 0.6rem 0.8rem;
   margin-bottom: 0.5rem;
@@ -83,6 +84,12 @@ h1 {
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.05);
   color: var(--text);
+}
+
+.control-group .hint {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 .control-group button {
@@ -114,7 +121,7 @@ h1 {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 0.75rem;
   align-self: center;
-  width: 420px;
+  min-width: 420px;
 }
 
 .metric {
@@ -166,6 +173,7 @@ h1 {
 .charts {
   display: grid;
   gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
 .chart-card {
