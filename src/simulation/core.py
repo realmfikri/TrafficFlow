@@ -14,6 +14,7 @@ maximum tick count, and a small grid topology. These values are intended as
 starting points and can be overridden via configuration files or constructor
 arguments.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Event, Lock, Thread
-from typing import Dict, List, Set
+from typing import Dict, List, Set, TypedDict
 import time
 
 from fastapi import FastAPI, HTTPException
@@ -12,16 +12,22 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-PRESETS = {
-    "Sunday Morning": {"spawn_interval": 4, "signal_timings": {"NS": 28.0, "EW": 28.0}},
-    "Rush Hour": {"spawn_interval": 1, "signal_timings": {"NS": 40.0, "EW": 32.0}},
-}
-
 from src.agents.vehicle import Vehicle, VehicleSpawner
 from src.map.generator import generate_grid_network
 from src.metrics import MetricSnapshot, MetricsCollector
 from src.signals.lights import TrafficSignalController
 from src.simulation.core import SimulationConfig, SimulationEngine
+
+
+class PresetConfig(TypedDict, total=False):
+    spawn_interval: int
+    signal_timings: Dict[str, float]
+
+
+PRESETS: Dict[str, PresetConfig] = {
+    "Sunday Morning": {"spawn_interval": 4, "signal_timings": {"NS": 28.0, "EW": 28.0}},
+    "Rush Hour": {"spawn_interval": 1, "signal_timings": {"NS": 40.0, "EW": 32.0}},
+}
 
 
 @dataclass
@@ -39,7 +45,9 @@ class SimulationRuntime:
     active_preset: str | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
-        self._engine = SimulationEngine(self.config, network=generate_grid_network(self.config.grid))
+        self._engine = SimulationEngine(
+            self.config, network=generate_grid_network(self.config.grid)
+        )
         self._engine.state["closed_edges"] = self.closed_edges
 
         self._signals = TrafficSignalController(self._engine.state["network"])
@@ -71,7 +79,7 @@ class SimulationRuntime:
     def vehicles(self) -> Dict[str, Vehicle]:
         return self._spawner.vehicles
 
-    def toggle_edge_closure(self, edge_id: str) -> Dict[str, bool]:
+    def toggle_edge_closure(self, edge_id: str) -> Dict[str, str | bool]:
         with self._lock:
             if edge_id in self.closed_edges:
                 self.closed_edges.remove(edge_id)
@@ -99,12 +107,15 @@ class SimulationRuntime:
             raise ValueError(f"Unknown preset: {name}")
 
         with self._lock:
-            if "spawn_interval" in preset:
-                self._spawner.spawn_interval = max(int(preset["spawn_interval"]), 1)
-            if "signal_timings" in preset:
+            spawn_interval_raw = preset.get("spawn_interval")
+            if isinstance(spawn_interval_raw, (int, float)):
+                self._spawner.spawn_interval = max(int(spawn_interval_raw), 1)
+
+            timings = preset.get("signal_timings")
+            if isinstance(timings, dict):
                 durations = {
-                    "NS": max(float(preset["signal_timings"].get("NS", 1.0)), 1.0),
-                    "EW": max(float(preset["signal_timings"].get("EW", 1.0)), 1.0),
+                    "NS": max(float(timings.get("NS", 1.0)), 1.0),
+                    "EW": max(float(timings.get("EW", 1.0)), 1.0),
                 }
                 self._signals.update_phase_durations(durations)
             self.active_preset = name
@@ -289,7 +300,7 @@ def create_app(runtime: SimulationRuntime | None = None) -> FastAPI:
         return runtime.update_spawn_interval(update.spawn_interval)
 
     @app.post("/api/closures/toggle")
-    async def toggle_closure(update: ClosureUpdate) -> Dict[str, bool]:
+    async def toggle_closure(update: ClosureUpdate) -> Dict[str, str | bool]:
         return runtime.toggle_edge_closure(update.edge_id)
 
     return app

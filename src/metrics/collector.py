@@ -1,4 +1,5 @@
 """Collects metrics about commute times, throughput, and queue lengths."""
+
 from __future__ import annotations
 
 from collections import deque

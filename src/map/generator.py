@@ -11,6 +11,7 @@ Assumptions
 Default parameters are intentionally modest to keep simulations fast while
 still being representative of a small downtown block.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -54,9 +55,10 @@ class GridConfig:
         return self.capacity_per_lane * self.lanes_per_road
 
 
-Node = Dict[str, float]
-Edge = Dict[str, float]
-Network = Dict[str, List[Dict[str, float]]]
+Scalar = float | int | str
+Node = Dict[str, Scalar]
+Edge = Dict[str, Scalar]
+Network = Dict[str, List[Edge]]
 
 
 def generate_grid_network(config: GridConfig) -> Network:

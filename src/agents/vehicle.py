@@ -1,4 +1,5 @@
 """Vehicle agents with basic car-following behavior and spawning utilities."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -242,13 +243,37 @@ class VehicleSpawner:
         while (cur_row, cur_col) != (dest_row, dest_col):
             step_options: List[Dict] = []
             if dest_col > cur_col:
-                step_options.extend([e for e in by_from.get(current, []) if e["to"].endswith(f"_{cur_row}_{cur_col+1}")])
+                step_options.extend(
+                    [
+                        e
+                        for e in by_from.get(current, [])
+                        if e["to"].endswith(f"_{cur_row}_{cur_col+1}")
+                    ]
+                )
             elif dest_col < cur_col:
-                step_options.extend([e for e in by_from.get(current, []) if e["to"].endswith(f"_{cur_row}_{cur_col-1}")])
+                step_options.extend(
+                    [
+                        e
+                        for e in by_from.get(current, [])
+                        if e["to"].endswith(f"_{cur_row}_{cur_col-1}")
+                    ]
+                )
             if dest_row > cur_row:
-                step_options.extend([e for e in by_from.get(current, []) if e["to"].endswith(f"_{cur_row+1}_{cur_col}")])
+                step_options.extend(
+                    [
+                        e
+                        for e in by_from.get(current, [])
+                        if e["to"].endswith(f"_{cur_row+1}_{cur_col}")
+                    ]
+                )
             elif dest_row < cur_row:
-                step_options.extend([e for e in by_from.get(current, []) if e["to"].endswith(f"_{cur_row-1}_{cur_col}")])
+                step_options.extend(
+                    [
+                        e
+                        for e in by_from.get(current, [])
+                        if e["to"].endswith(f"_{cur_row-1}_{cur_col}")
+                    ]
+                )
 
             if not step_options:
                 step_options = by_from.get(current, [])
@@ -307,8 +332,17 @@ class VehicleSpawner:
         if next_edge is None:
             return True
 
-        next_capacity = int(next_edge.get("capacity", math.inf))
+        capacity_value = next_edge.get("capacity", math.inf)
+        next_capacity: float
+        if isinstance(capacity_value, (int, float)):
+            next_capacity = float(capacity_value)
+        else:
+            next_capacity = math.inf
+
         next_id = next_edge.get("id")
+        if not isinstance(next_id, str):
+            return False
+
         if occupancy.get(next_id, 0) >= next_capacity:
             return False
         if next_id in blocked_edges:
@@ -341,12 +375,19 @@ class VehicleSpawner:
             leader: Optional[Vehicle] = None
             for veh in vehicles:
                 before_edge = veh.current_edge_id
+
+                def _can_enter(
+                    cur: Dict,
+                    nxt: Optional[Dict],
+                    occ: Dict[str, int] = occupancy,
+                    blocked: set[str] = blocked_edges,
+                ) -> bool:
+                    return self._can_enter_next_edge(cur, nxt, occ, blocked, signals, closed_edges)
+
                 veh.step(
                     dt,
                     leader,
-                    can_enter_next=lambda cur, nxt, occ=occupancy, blocked=blocked_edges: self._can_enter_next_edge(
-                        cur, nxt, occ, blocked, signals, closed_edges
-                    ),
+                    can_enter_next=_can_enter,
                 )
                 after_edge = veh.current_edge_id
 

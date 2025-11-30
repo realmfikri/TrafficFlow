@@ -1,4 +1,5 @@
 """Simple traffic light state machines for grid intersections."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -9,9 +10,7 @@ from typing import Dict, Optional
 class TrafficLight:
     """Two-phase traffic light with configurable north/south and east/west durations."""
 
-    phase_durations: Dict[str, float] = field(
-        default_factory=lambda: {"NS": 30.0, "EW": 30.0}
-    )
+    phase_durations: Dict[str, float] = field(default_factory=lambda: {"NS": 30.0, "EW": 30.0})
     current_phase: str = "NS"
     elapsed: float = 0.0
 
@@ -71,10 +70,17 @@ class TrafficSignalController:
 
     def can_enter(self, current_edge: Dict, next_edge: Dict) -> bool:
         dest = current_edge.get("to")
+        if not isinstance(dest, str):
+            return True
+
         light = self.lights.get(dest)
         if light is None:
             return True
-        orientation = self._orientation(current_edge.get("from"), dest)
+        from_id = current_edge.get("from")
+        if not isinstance(from_id, str):
+            return True
+
+        orientation = self._orientation(from_id, dest)
         return light.allows(orientation)
 
     def update_phase_durations(self, durations: Dict[str, float]) -> None:
@@ -90,4 +96,3 @@ class TrafficSignalController:
 
         engine.state["signals"] = self
         engine.register_agent("signals", _callback, start_tick=0, interval=1)
-
