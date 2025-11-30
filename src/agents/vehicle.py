@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 import math
 import random
 
@@ -22,6 +22,10 @@ class Vehicle:
     length: float = 4.5
     acceleration: float = 0.0
 
+    # Simple stuck detection
+    stuck_ticks: int = 0
+    stuck: bool = False
+
     # IDM parameters
     desired_time_headway: float = 1.5
     minimum_spacing: float = 2.0
@@ -30,7 +34,10 @@ class Vehicle:
     delta: int = 4
 
     def _current_edge(self) -> Dict:
-        return self.route[self.current_edge_index]
+        if not self.route:
+            return {}
+        clamped = min(self.current_edge_index, len(self.route) - 1)
+        return self.route[clamped]
 
     @property
     def current_edge_id(self) -> str:
@@ -71,25 +78,64 @@ class Vehicle:
 
         return self.acceleration_max * (1 - free_flow_term - interaction_term)
 
-    def _advance_edge(self, distance: float) -> float:
+    def _advance_edge(
+        self,
+        distance: float,
+        *,
+        can_enter_next: Optional[Callable[[Dict, Optional[Dict]], bool]] = None,
+    ) -> Tuple[float, bool]:
         remaining = self.edge_remaining
-        if distance < remaining:
-            self.position += distance
-            return 0.0
+        blocked = False
+
+        if remaining > 0 and distance < remaining:
+            self.position += min(distance, remaining)
+            return 0.0, blocked
 
         distance -= remaining
+        next_edge_index = self.current_edge_index + 1
+        next_edge: Optional[Dict] = None
+        if next_edge_index < len(self.route):
+            next_edge = self.route[next_edge_index]
+
+        if next_edge is not None and can_enter_next is not None:
+            if not can_enter_next(self._current_edge(), next_edge):
+                # Wait at the end of the current edge
+                self.position = self._current_edge().get("length", self.position)
+                blocked = True
+                return 0.0, blocked
+
         self.position = 0.0
         self.current_edge_index += 1
 
         if self.current_edge_index >= len(self.route):
             self.arrived = True
             self.velocity = 0.0
-            return 0.0
+            return 0.0, blocked
 
-        return distance
+        return distance, blocked
 
-    def step(self, dt: float, leader: Optional["Vehicle"] = None) -> None:
-        """Advance the vehicle by one tick using IDM dynamics."""
+    def _update_stuck_state(self, was_blocked: bool) -> None:
+        stationary = was_blocked or self.velocity < 0.1
+        if stationary and not self.arrived:
+            self.stuck_ticks += 1
+        else:
+            self.stuck_ticks = 0
+        self.stuck = self.stuck_ticks >= 5
+
+    def step(
+        self,
+        dt: float,
+        leader: Optional["Vehicle"] = None,
+        *,
+        can_enter_next: Optional[Callable[[Dict, Optional[Dict]], bool]] = None,
+    ) -> None:
+        """Advance the vehicle by one tick using IDM dynamics.
+
+        ``can_enter_next`` is a callback that determines whether the vehicle can
+        proceed into the next edge (e.g., based on signals or downstream
+        capacity). When blocked, the vehicle will wait at the end of its current
+        edge and mark itself as stuck after several stationary ticks.
+        """
 
         if self.arrived:
             self.acceleration = 0.0
@@ -100,14 +146,20 @@ class Vehicle:
         new_velocity = max(0.0, min(self.desired_speed(), self.velocity + self.acceleration * dt))
         distance = max(self.velocity * dt + 0.5 * self.acceleration * dt * dt, 0.0)
         remaining_distance = distance
+        was_blocked = False
 
         while remaining_distance > 0 and not self.arrived:
-            remaining_distance = self._advance_edge(remaining_distance)
+            remaining_distance, blocked = self._advance_edge(
+                remaining_distance, can_enter_next=can_enter_next
+            )
+            was_blocked = was_blocked or blocked
 
         if not self.arrived:
-            self.velocity = new_velocity
+            self.velocity = 0.0 if was_blocked else new_velocity
         else:
             self.velocity = 0.0
+
+        self._update_stuck_state(was_blocked)
 
 
 @dataclass
@@ -211,6 +263,39 @@ class VehicleSpawner:
         for vid in to_remove:
             del self.vehicles[vid]
 
+    def _blocked_edges(self, ordering: Dict[str, List[Vehicle]]) -> set[str]:
+        blocked: set[str] = set()
+        for edge_id, vehicles in ordering.items():
+            for veh in vehicles:
+                if veh.stuck and veh.edge_remaining < veh.length:
+                    blocked.add(edge_id)
+                    break
+        return blocked
+
+    def _can_enter_next_edge(
+        self,
+        current_edge: Dict,
+        next_edge: Optional[Dict],
+        occupancy: Dict[str, int],
+        blocked_edges: set[str],
+        signals,
+    ) -> bool:
+        if next_edge is None:
+            return True
+
+        next_capacity = int(next_edge.get("capacity", math.inf))
+        next_id = next_edge.get("id")
+        if occupancy.get(next_id, 0) >= next_capacity:
+            return False
+        if next_id in blocked_edges:
+            return False
+
+        if signals is not None and hasattr(signals, "can_enter"):
+            if not signals.can_enter(current_edge, next_edge):
+                return False
+
+        return True
+
     def tick(self, state: Dict, tick: int, *, dt: float) -> None:
         """Spawn and advance vehicles for the given tick."""
 
@@ -219,10 +304,32 @@ class VehicleSpawner:
         self._tick_counter += 1
 
         ordering = self._leaders_by_edge()
+        occupancy: Dict[str, int] = {edge_id: len(vehs) for edge_id, vehs in ordering.items()}
+        signals = state.get("signals") if isinstance(state, dict) else None
+        blocked_edges = self._blocked_edges(ordering)
+
         for vehicles in ordering.values():
             leader: Optional[Vehicle] = None
             for veh in vehicles:
-                veh.step(dt, leader)
+                before_edge = veh.current_edge_id
+                veh.step(
+                    dt,
+                    leader,
+                    can_enter_next=lambda cur, nxt, occ=occupancy, blocked=blocked_edges: self._can_enter_next_edge(
+                        cur, nxt, occ, blocked, signals
+                    ),
+                )
+                after_edge = veh.current_edge_id
+
+                if veh.arrived:
+                    occupancy[before_edge] = max(0, occupancy.get(before_edge, 1) - 1)
+                elif after_edge != before_edge:
+                    occupancy[before_edge] = max(0, occupancy.get(before_edge, 1) - 1)
+                    occupancy[after_edge] = occupancy.get(after_edge, 0) + 1
+
+                if veh.stuck:
+                    blocked_edges.add(veh.current_edge_id)
+
                 leader = veh if not veh.arrived else None
 
         self._remove_arrived()
